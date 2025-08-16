@@ -80,6 +80,37 @@ class ImageTextProcessor:
         # Ensure reasonable bounds
         return max(8, min(estimated_font_size, 72))
     
+    def get_dominant_text_color(self, image_array, bbox):
+        """Extract the dominant text color from the bounding box region"""
+        try:
+            top_left = tuple(map(int, bbox[0]))
+            bottom_right = tuple(map(int, bbox[2]))
+            
+            # Extract the text region
+            text_region = image_array[top_left[1]:bottom_right[1], top_left[0]:bottom_right[0]]
+            
+            # Convert to grayscale to find text pixels
+            gray_region = cv2.cvtColor(text_region, cv2.COLOR_RGB2GRAY)
+            
+            # Use Otsu's thresholding to separate text from background
+            _, binary = cv2.threshold(gray_region, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            # Find text pixels (assuming text is darker than background)
+            text_mask = binary < 128
+            
+            if np.any(text_mask):
+                # Get the average color of text pixels
+                text_pixels = text_region[text_mask]
+                avg_color = np.mean(text_pixels, axis=0)
+                return tuple(map(int, avg_color))
+            else:
+                # Fallback to black if no text pixels found
+                return (0, 0, 0)
+                
+        except Exception as e:
+            print(f"Error extracting text color: {e}")
+            return (0, 0, 0)  # Default to black
+
     def replace_text_in_image(self, image_path: str, source_lang: str, target_lang: str, font_path: str = None, scale_factor: float = 1.0) -> str:
         """Replace text in image with translated text"""
         try:
@@ -110,6 +141,10 @@ class ImageTextProcessor:
                     width = bottom_right[0] - top_left[0]
                     height = bottom_right[1] - top_left[1]
                     print(f"size: 'width {width}, height {height}'")
+                    
+                    # Extract original text color
+                    original_color = self.get_dominant_text_color(image_rgb, bbox)
+                    print(f"Detected original text color: {original_color}")
                     
                     print(f"Translating text: '{text}'")
                     # Translate text
@@ -151,10 +186,10 @@ class ImageTextProcessor:
                         print(f"Font loading error: {font_error}")
                         font = ImageFont.load_default()
                     
-                    # Create a white rectangle to cover original text
-                    draw.rectangle([top_left, bottom_right], fill='white', outline='white')
+                    # REMOVED: Create a white rectangle to cover original text
+                    # draw.rectangle([top_left, bottom_right], fill='white', outline='white')
                     
-                    # Draw translated text
+                    # Draw translated text with original color (transparent background)
                     # Center the text in the bounding box
                     text_bbox = draw.textbbox((0, 0), translated_text, font=font)
                     text_width = text_bbox[2] - text_bbox[0]
@@ -163,8 +198,9 @@ class ImageTextProcessor:
                     text_x = top_left[0] + (width - text_width) // 2
                     text_y = top_left[1] + (height - text_height) // 2
                     
-                    draw.text((text_x, text_y), translated_text, fill='black', font=font)
-                    print(f"Drew text at ({text_x}, {text_y})")
+                    # Use the detected original text color instead of black
+                    draw.text((text_x, text_y), translated_text, fill=original_color, font=font)
+                    print(f"Drew text at ({text_x}, {text_y}) with color {original_color}")
             
             print("Converting image to base64...")
             # Convert back to base64
